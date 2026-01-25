@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import { StyleSheet, Text, View, ScrollView } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import ScreenWrapper from "@/components/ScreenWrapper";
 import Colors from "@/constants/Colors";
 import { useColorScheme } from "@/components/useColorScheme";
@@ -9,7 +10,13 @@ import { useWorkout, Workout } from "@/context/WorkoutContext";
 export default function HistoryScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme ?? "light"];
-  const { history } = useWorkout();
+  const { history, refreshHistory } = useWorkout();
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshHistory();
+    }, [refreshHistory]),
+  );
 
   // Helper to format date
   const formatDate = (timestamp: number) => {
@@ -30,14 +37,14 @@ export default function HistoryScreen() {
   };
 
   const groupedHistory = useMemo(() => {
-    // Group by date logic here if needed, for now flat list or simple grouping
-    // Let's group by simple formatted date
     const groups: { [key: string]: Workout[] } = {};
-    history.forEach((workout) => {
-      const dateKey = formatDate(workout.startTime);
-      if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(workout);
-    });
+    [...history]
+      .sort((a, b) => b.startTime - a.startTime)
+      .forEach((workout) => {
+        const dateKey = formatDate(workout.startTime);
+        if (!groups[dateKey]) groups[dateKey] = [];
+        groups[dateKey].push(workout);
+      });
     return groups;
   }, [history]);
 
@@ -55,36 +62,47 @@ export default function HistoryScreen() {
             </Text>
           </View>
         ) : (
-          Object.entries(groupedHistory).map(([date, workouts]) => (
-            <View key={date}>
-              <Text
-                style={[styles.sectionHeader, { color: theme.tabIconDefault }]}
-              >
-                {date}
-              </Text>
-              <View
-                style={[styles.listContainer, { backgroundColor: theme.card }]}
-              >
-                {workouts.map((workout) => (
-                  <HistoryItem
-                    key={workout.id}
-                    title={
-                      workout.exercises.map((e) => e.name).join(", ") ||
-                      "Untitled Workout"
-                    }
-                    date={new Date(workout.startTime).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                    duration={formatDuration(
-                      workout.startTime,
-                      workout.endTime,
-                    )}
-                  />
-                ))}
+          Object.entries(groupedHistory)
+            .sort(
+              ([dateA], [dateB]) =>
+                new Date(dateB).getTime() - new Date(dateA).getTime(),
+            )
+            .map(([date, workouts]) => (
+              <View key={date}>
+                <Text
+                  style={[
+                    styles.sectionHeader,
+                    { color: theme.tabIconDefault },
+                  ]}
+                >
+                  {date}
+                </Text>
+                <View
+                  style={[
+                    styles.listContainer,
+                    { backgroundColor: theme.card },
+                  ]}
+                >
+                  {workouts.map((workout) => (
+                    <HistoryItem
+                      key={workout.id}
+                      title={
+                        workout.exercises.map((e) => e.name).join(", ") ||
+                        "Untitled Workout"
+                      }
+                      date={new Date(workout.startTime).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      duration={formatDuration(
+                        workout.startTime,
+                        workout.endTime,
+                      )}
+                    />
+                  ))}
+                </View>
               </View>
-            </View>
-          ))
+            ))
         )}
       </ScrollView>
     </ScreenWrapper>

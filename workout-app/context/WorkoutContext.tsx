@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from "react";
 import { Alert } from "react-native";
-import { API_URL } from "@/constants/Config";
+import { WORKOUTS_URL, WORKOUTS_UPSERT_URL } from "@/constants/Config";
 
 export type WorkoutSet = {
   id: string;
@@ -29,6 +29,7 @@ export type Workout = {
 type WorkoutContextType = {
   currentWorkout: Workout | null;
   history: Workout[];
+  refreshHistory: () => Promise<void>;
   startWorkout: () => void;
   startTimer: () => void;
   finishWorkout: () => void;
@@ -58,16 +59,30 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [currentWorkout, setCurrentWorkout] = useState<Workout | null>(null);
   const [history, setHistory] = useState<Workout[]>([]);
 
+  const refreshHistory = async () => {
+    try {
+      const res = await fetch(WORKOUTS_URL);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const normalized = data
+          .map((item) => ({
+            id: item.clientId ?? item._id ?? generateId(),
+            startTime: item.startTime,
+            endTime: item.endTime,
+            exercises: item.exercises ?? [],
+            status: item.status ?? "finished",
+          }))
+          .sort((a, b) => b.startTime - a.startTime);
+        setHistory(normalized);
+      }
+    } catch (err) {
+      console.log("Failed to fetch history:", err);
+    }
+  };
+
   // load history from backend
   React.useEffect(() => {
-    fetch(API_URL)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setHistory(data);
-        }
-      })
-      .catch((err) => console.log("Failed to fetch history:", err));
+    refreshHistory();
   }, []);
 
   const startWorkout = () => {
@@ -87,6 +102,45 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const syncWorkout = async (workout: Workout, mode: "live" | "final") => {
+    try {
+      const payload = {
+        clientId: workout.id,
+        startTime: workout.startTime,
+        endTime: workout.endTime,
+        exercises: workout.exercises,
+        status: workout.status === "preparing" ? "active" : workout.status,
+      };
+
+      const res = await fetch(WORKOUTS_UPSERT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        // If backend isn't updated with /upsert yet, fallback only on finish
+        if (mode === "final") {
+          const fallback = await fetch(WORKOUTS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(workout),
+          });
+          if (!fallback.ok) {
+            throw new Error(`Workout sync failed: ${fallback.status}`);
+          }
+        } else {
+          throw new Error(`Workout sync failed: ${res.status}`);
+        }
+      }
+    } catch (error) {
+      console.error("Workout sync failed:", error);
+      if (mode === "final") {
+        throw error;
+      }
+    }
+  };
+
   const finishWorkout = async () => {
     if (!currentWorkout) return;
     const finishedWorkout = {
@@ -100,11 +154,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     setCurrentWorkout(null);
 
     try {
-      await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(finishedWorkout),
-      });
+      await syncWorkout(finishedWorkout, "final");
     } catch (error) {
       Alert.alert("Sync Error", "Could not save workout to backend.");
       console.error(error);
@@ -129,10 +179,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
 
     setCurrentWorkout((prev) => {
       if (!prev) return null;
-      return {
+      const updated: Workout = {
         ...prev,
         exercises: [...prev.exercises, newExercise],
       };
+      syncWorkout(updated, "live");
+      return updated;
     });
   };
 
@@ -217,6 +269,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       value={{
         currentWorkout,
         history,
+        refreshHistory,
         startWorkout,
         startTimer,
         finishWorkout,

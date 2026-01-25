@@ -40,6 +40,27 @@ app.post("/api/workouts", async (req, res) => {
   }
 });
 
+// POST: Upsert workout by clientId (used for live sync on mobile)
+app.post("/api/workouts/upsert", async (req, res) => {
+  try {
+    const { clientId, startTime, endTime, exercises, status } = req.body;
+
+    if (!clientId) {
+      return res.status(400).json({ error: "clientId is required" });
+    }
+
+    const updatedWorkout = await Workout.findOneAndUpdate(
+      { clientId },
+      { $set: { clientId, startTime, endTime, exercises, status } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
+
+    res.status(200).json(updatedWorkout);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

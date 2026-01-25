@@ -15,6 +15,7 @@ const exerciseSchema = new mongoose.Schema({
 
 const workoutSchema = new mongoose.Schema(
   {
+    clientId: { type: String, index: true },
     startTime: { type: Number, required: true },
     endTime: { type: Number },
     exercises: [exerciseSchema],
